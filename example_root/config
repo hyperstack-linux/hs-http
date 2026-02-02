@@ -1,0 +1,9 @@
+listen=8080
+interface=0.0.0.0
+root=webdocs
+log=stdout info
+# log=/var/log/hs-http.log debug
+redirect=/podstrona 127.0.0.1:5555 tcp
+require_extensions=false
+plugin ./plugin.so /api
+plugin ./plugin_cpp.so /cpp
