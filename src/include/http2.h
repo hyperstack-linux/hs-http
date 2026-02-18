@@ -36,6 +36,14 @@ typedef struct {
   uint32_t stream_id;
 } Http2FrameHeader;
 
+// Stream state for header reconstruction
+typedef struct {
+  uint8_t *header_block_fragment;
+  size_t fragment_size;
+  size_t fragment_capacity;
+  int end_headers_received;
+} Http2StreamState;
+
 // HTTP/2 State for a connection
 typedef struct {
   int initialized;
@@ -43,6 +51,8 @@ typedef struct {
   uint32_t local_window_size;
   uint32_t next_stream_id;
   // Add more state as needed (HPACK context, streams map, etc.)
+  Http2StreamState *streams; // Array of stream states (indexed by stream ID)
+  size_t max_streams;        // Maximum number of streams we track
 } Http2State;
 
 // Initialize HTTP/2 state for a connection
@@ -56,5 +66,14 @@ void http2_handle_read(Connection *conn);
 
 // Send a simple SETTINGS frame
 void http2_send_settings(Connection *conn);
+
+// Send an HTTP/2 response
+void http2_send_response(Connection *conn, uint32_t stream_id, int status_code,
+                         const char *content_type, const void *body,
+                         size_t body_len);
+
+// Handle the original request from an h2c upgrade as HTTP/2 stream 1
+void http2_handle_upgrade_request(Connection *conn, const char *method,
+                                  const char *path);
 
 #endif

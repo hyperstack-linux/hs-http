@@ -6,8 +6,16 @@
 #include <stdarg.h>
 #include "include/server.h"
 #include "include/plugin_api.h"
+#include "include/http2.h"
 
 static ServerConfig* global_config = NULL;
+static Connection* current_h2_conn = NULL;
+static uint32_t current_h2_stream = 0;
+
+void set_plugin_h2_context(Connection* conn, uint32_t stream) {
+    current_h2_conn = conn;
+    current_h2_stream = stream;
+}
 
 static void plugin_log(int level, const char* format, ...) {
     if (!global_config) return;
@@ -42,9 +50,27 @@ static const char* get_header(PluginRequest* req, const char* key) {
     return NULL;
 }
 
+static void plugin_send_response(int client_fd, int status_code, const char* status_text, const char* content_type, const unsigned char* body, unsigned int body_len) {
+    if (current_h2_conn) {
+        http2_send_response(current_h2_conn, current_h2_stream, status_code, content_type, body, body_len);
+    } else {
+        send_response(client_fd, status_code, status_text, content_type, body, body_len);
+    }
+}
+
+static void plugin_send_response_with_headers(int client_fd, int status_code, const char* status_text, const char* content_type, const unsigned char* body, unsigned int body_len, struct Header* headers, int header_count) {
+    if (current_h2_conn) {
+        // HTTP/2 response with extra headers is not yet fully supported in http2_send_response
+        // Sending basic response for now.
+        http2_send_response(current_h2_conn, current_h2_stream, status_code, content_type, body, body_len);
+    } else {
+        send_response_with_headers(client_fd, status_code, status_text, content_type, body, body_len, headers, header_count);
+    }
+}
+
 static PluginAPI api = {
-    .send_response = send_response,
-    .send_response_with_headers = send_response_with_headers,
+    .send_response = plugin_send_response,
+    .send_response_with_headers = plugin_send_response_with_headers,
     .log = plugin_log,
     .get_query_param = get_query_param,
     .get_header = get_header
@@ -131,13 +157,13 @@ void unload_plugins(ServerConfig* config) {
 int handle_plugin_request(int client_fd, const char* path, char* method, char* version, const char* raw_request, size_t raw_len, ServerConfig* config) {
     for (int i = 0; i < config->plugin_count; i++) {
         Plugin* p = &config->plugins[i];
-        
+
         if (!p->handle || !p->plugin_info) {
             continue;
         }
-        
+
         size_t endpoint_len = strlen(p->endpoint);
-        
+
         if (endpoint_len == 1 && p->endpoint[0] == '/') {
             if (path[0] != '/' || path[1] == '\0') {
                 continue;
@@ -146,35 +172,41 @@ int handle_plugin_request(int client_fd, const char* path, char* method, char* v
             if (strncmp(path, p->endpoint, endpoint_len) != 0) {
                 continue;
             }
-            
+
             if (path[endpoint_len] != '\0' && path[endpoint_len] != '/') {
                 continue;
             }
         }
-        
+
         PluginInfo* info = (PluginInfo*)p->plugin_info;
         if (!info->endpoints || info->endpoint_count == 0) {
             continue;
         }
-        
-        const char* subpath = path + endpoint_len;
+
+        const char* subpath;
+        if (endpoint_len == 1 && p->endpoint[0] == '/') {
+            subpath = path;
+        } else {
+            subpath = path + endpoint_len;
+        }
+
         if (*subpath == '\0') {
             subpath = "/";
         }
-        
+
         // Parse query string
         char path_without_query[1024];
         strncpy(path_without_query, subpath, sizeof(path_without_query) - 1);
         path_without_query[sizeof(path_without_query) - 1] = '\0';
-        
+
         char* query_start = strchr(path_without_query, '?');
         QueryParam query_params[32];
         int query_param_count = 0;
-        
+
         if (query_start) {
             *query_start = '\0';
             query_start++;
-            
+
             char* token = strtok(query_start, "&");
             while (token && query_param_count < 32) {
                 char* eq = strchr(token, '=');
@@ -190,18 +222,18 @@ int handle_plugin_request(int client_fd, const char* path, char* method, char* v
             }
             subpath = path_without_query;
         }
-        
+
         for (int j = 0; j < info->endpoint_count; j++) {
             PluginEndpoint* ep = &info->endpoints[j];
-            
+
             if (strcmp(subpath, ep->path) != 0) {
                 continue;
             }
-            
+
             if (ep->method && strcmp(method, ep->method) != 0) {
                 continue;
             }
-            
+
             PluginRequest req;
             req.client_fd = client_fd;
             strncpy(req.method, method, sizeof(req.method) - 1);
@@ -274,7 +306,7 @@ int handle_plugin_request(int client_fd, const char* path, char* method, char* v
                             line_len--;
                         }
 
-                        log_message(config, LOG_DEBUG, "Line %d: len=%d, content=%.*s", 
+                        log_message(config, LOG_DEBUG, "Line %d: len=%d, content=%.*s",
                                    line_num, line_len, line_len > 50 ? 50 : line_len, buf + line_start);
 
                         // Skip first line (request line) and empty lines
@@ -307,7 +339,7 @@ int handle_plugin_request(int client_fd, const char* path, char* method, char* v
                                     headers_temp[header_count].value[value_len] = '\0';
                                 }
 
-                                log_message(config, LOG_DEBUG, "Header %d: '%s' = '%s'", 
+                                log_message(config, LOG_DEBUG, "Header %d: '%s' = '%s'",
                                            header_count, headers_temp[header_count].key, headers_temp[header_count].value);
                                 header_count++;
                             }
@@ -351,7 +383,7 @@ int handle_plugin_request(int client_fd, const char* path, char* method, char* v
             req.body = body_ptr;
             req.body_len = body_len;
 
-            log_message(config, LOG_DEBUG, "Plugin %s handling %s %s (headers=%d body=%u)", 
+            log_message(config, LOG_DEBUG, "Plugin %s handling %s %s (headers=%d body=%u)",
                        info->name, method, path, header_count, body_len);
 
             int rv = ep->handler(&req);
@@ -362,6 +394,6 @@ int handle_plugin_request(int client_fd, const char* path, char* method, char* v
             return rv;
         }
     }
-    
+
     return -1;
 }

@@ -142,6 +142,8 @@ int handle_plugin_request(int client_fd, const char *path, char *method,
                           char *version, const char *raw_request,
                           size_t raw_len, ServerConfig *config);
 
+void set_plugin_h2_context(Connection* conn, uint32_t stream);
+
 // Exposed functions
 void free_connection(Connection *conn);
 int mod_epoll(int fd, uint32_t events);

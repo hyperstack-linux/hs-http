@@ -1,4 +1,5 @@
 #include "include/http1.h"
+#include "include/http2.h"
 #include "include/server.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -119,7 +120,10 @@ void http1_handle_read(Connection *conn) {
       return;
     }
 
-    // Parse headers for cache validation (simplified for now)
+    int is_upgrade_h2c = 0;
+    char http2_settings_b64[512] = {0};
+
+    // Parse headers
     while ((line = strtok(NULL, "\r\n")) != NULL && strlen(line) > 0) {
       if (strncasecmp(line, "If-Modified-Since:", 18) == 0) {
         strncpy(conn->if_modified_since, line + 19,
@@ -137,7 +141,55 @@ void http1_handle_read(Connection *conn) {
           start++;
         if (start != conn->if_none_match)
           memmove(conn->if_none_match, start, strlen(start) + 1);
+      } else if (strncasecmp(line, "Upgrade:", 8) == 0) {
+        char *val = line + 8;
+        while (*val == ' ')
+          val++;
+        if (strncasecmp(val, "h2c", 3) == 0)
+          is_upgrade_h2c = 1;
+      } else if (strncasecmp(line, "HTTP2-Settings:", 15) == 0) {
+        char *val = line + 15;
+        while (*val == ' ')
+          val++;
+        strncpy(http2_settings_b64, val, sizeof(http2_settings_b64) - 1);
       }
+    }
+
+    // Handle HTTP/2 Upgrade (h2c) - RFC 7540 Section 3.2
+    if (is_upgrade_h2c) {
+      log_message(conn->config, LOG_INFO,
+                  "HTTP/2 Upgrade requested, switching protocols");
+
+      // Send 101 Switching Protocols
+      const char *switching = "HTTP/1.1 101 Switching Protocols\r\n"
+                              "Connection: Upgrade\r\n"
+                              "Upgrade: h2c\r\n"
+                              "\r\n";
+      write(conn->fd, switching, strlen(switching));
+
+      // Switch connection to HTTP/2 and initialize state
+      conn->protocol = PROTO_HTTP2;
+      http2_init(conn);
+
+      // Send our SETTINGS frame immediately after 101
+      // (RFC 7540 §3.2: server MUST send a connection preface consisting of
+      // SETTINGS)
+      char settings_frame[9] = {0, 0, 0, 4, 0, 0, 0, 0, 0};
+      write(conn->fd, settings_frame, 9);
+
+      // Handle the original request as HTTP/2 stream 1
+      // (RFC 7540 §3.2: the HTTP/1.1 request that triggered the upgrade is
+      //  assigned stream 1 with default priority and half-closed (remote)
+      //  state)
+      http2_handle_upgrade_request(conn, method, path);
+
+      // Clear the read buffer — next data from client will be the HTTP/2
+      // preface + SETTINGS frame which http2_handle_read will process normally
+      conn->bytes_read = 0;
+
+      // Arm epoll for both read (client preface) and write (our response)
+      mod_epoll(conn->fd, EPOLLIN | EPOLLOUT | EPOLLET);
+      return;
     }
 
     int is_head = (strcmp(method, "HEAD") == 0);
