@@ -20,19 +20,20 @@ error_headers = gen_header.process(error_pages)
 
 dl_dep = dependency('dl', required: true)
 
+subdir('src/http1')
+subdir('src/http2')
+subdir('src/server_epoll')
 
 executable('hs-http',
-  'src/server_epoll.c',
   'src/mime.c',
   'src/handlers.c',
   'src/request.c',
   'src/response.c',
   'src/config.c',
   'src/plugin.c',
-  'src/http1.c',
-  'src/http2.c',
   'src/request_handler.c',
   error_headers,
   include_directories : 'src/include',
   dependencies : dl_dep,
+  link_with : [http1_lib, http2_lib, server_epoll_lib],
   install : true)
