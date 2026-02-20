@@ -44,6 +44,9 @@ typedef struct {
     void (*log)(int level, const char* format, ...);
     const char* (*get_query_param)(PluginRequest* req, const char* key);
     const char* (*get_header)(PluginRequest* req, const char* key);
+    int (*sse_init)(int client_fd);
+    int (*sse_send)(int client_fd, const char* event, const unsigned char* data, unsigned int data_len);
+    void (*sse_close)(int client_fd);
 } PluginAPI; 
 
 typedef int (*PluginHandler)(PluginRequest* req);

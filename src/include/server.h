@@ -119,6 +119,10 @@ void send_response_with_headers(int client_fd, int status_code,
                                 unsigned int body_len, struct Header *headers,
                                 int header_count);
 
+int sse_init(int client_fd);
+int sse_send(int client_fd, const char *event, const unsigned char *data, unsigned int data_len);
+void sse_close(int client_fd);
+
 void handle_error(int client_fd, int status_code, const char *status_text,
                   const char *root, const char *request_path);
 void handle_400(int client_fd);

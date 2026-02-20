@@ -146,6 +146,7 @@ private:
     std::vector<std::pair<std::string,std::string>> headers;
     int status;
     std::string status_text;
+    bool sse_started = false;
 public:
     Response(int fd) : client_fd(fd), status(200), status_text("OK") {}
     static void setAPI(PluginAPI* a) { api = a; }
@@ -177,6 +178,24 @@ public:
     void sendJSON(const std::string& json, int s = 200) { setStatus(s, "OK"); send("application/json", json); }
     void sendHTML(const std::string& html, int s = 200) { setStatus(s, "OK"); send("text/html", html); }
     void sendBinary(const std::vector<unsigned char>& data, const std::string& content_type, int s = 200) { setStatus(s, "OK"); sendRaw(content_type, data.data(), data.size()); }
+
+    void startSSE() {
+        if (!api || !api->sse_init || sse_started) return;
+        if (api->sse_init(client_fd) == 0) {
+            sse_started = true;
+        }
+    }
+
+    void sendSSE(const std::string& data, const std::string& event = "") {
+        if (!api || !api->sse_send || !sse_started) return;
+        api->sse_send(client_fd, event.empty() ? nullptr : event.c_str(), (const unsigned char*)data.data(), (unsigned int)data.size());
+    }
+
+    void closeSSE() {
+        if (!api || !api->sse_close || !sse_started) return;
+        api->sse_close(client_fd);
+        sse_started = false;
+    }
 };
 
 PluginAPI* Response::api = nullptr;

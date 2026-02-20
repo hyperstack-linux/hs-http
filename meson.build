@@ -1,4 +1,4 @@
-project('hs-http', 'c',
+project('hs-http', 'c', 'cpp',
   version : '0.1',
   default_options : ['warning_level=3'])
 
@@ -23,6 +23,7 @@ dl_dep = dependency('dl', required: true)
 subdir('src/http1')
 subdir('src/http2')
 subdir('src/server_epoll')
+subdir('plugin_examples')
 
 executable('hs-http',
   'src/mime.c',

@@ -60,12 +60,22 @@ static void plugin_send_response(int client_fd, int status_code, const char* sta
 
 static void plugin_send_response_with_headers(int client_fd, int status_code, const char* status_text, const char* content_type, const unsigned char* body, unsigned int body_len, struct Header* headers, int header_count) {
     if (current_h2_conn) {
-        // HTTP/2 response with extra headers is not yet fully supported in http2_send_response
-        // Sending basic response for now.
         http2_send_response(current_h2_conn, current_h2_stream, status_code, content_type, body, body_len);
     } else {
         send_response_with_headers(client_fd, status_code, status_text, content_type, body, body_len, headers, header_count);
     }
+}
+
+static int plugin_sse_init(int client_fd) {
+    return sse_init(client_fd);
+}
+
+static int plugin_sse_send(int client_fd, const char* event, const unsigned char* data, unsigned int data_len) {
+    return sse_send(client_fd, event, data, data_len);
+}
+
+static void plugin_sse_close(int client_fd) {
+    sse_close(client_fd);
 }
 
 static PluginAPI api = {
@@ -73,7 +83,10 @@ static PluginAPI api = {
     .send_response_with_headers = plugin_send_response_with_headers,
     .log = plugin_log,
     .get_query_param = get_query_param,
-    .get_header = get_header
+    .get_header = get_header,
+    .sse_init = plugin_sse_init,
+    .sse_send = plugin_sse_send,
+    .sse_close = plugin_sse_close
 };
 
 int load_plugins(ServerConfig* config) {
