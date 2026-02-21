@@ -98,6 +98,122 @@ void http2_send_response(Connection *conn, uint32_t stream_id, int status_code,
   mod_epoll(conn->fd, EPOLLIN | EPOLLOUT | EPOLLET);
 }
 
+int http2_sse_init(Connection *conn, uint32_t stream_id) {
+  unsigned char buf[64];
+  size_t pos = 0;
+
+  buf[pos++] = 0x88;
+
+  buf[pos++] = 0x5f;
+  const char *ct = "text/event-stream";
+  buf[pos++] = strlen(ct);
+  memcpy(buf + pos, ct, strlen(ct));
+  pos += strlen(ct);
+
+  size_t headers_len = pos;
+  unsigned char headers_frame[9] = {0};
+  headers_frame[0] = (headers_len >> 16) & 0xFF;
+  headers_frame[1] = (headers_len >> 8) & 0xFF;
+  headers_frame[2] = headers_len & 0xFF;
+  headers_frame[3] = H2_FRAME_HEADERS;
+  headers_frame[4] = 0x04;
+  headers_frame[5] = (stream_id >> 24) & 0x7F;
+  headers_frame[6] = (stream_id >> 16) & 0xFF;
+  headers_frame[7] = (stream_id >> 8) & 0xFF;
+  headers_frame[8] = stream_id & 0xFF;
+
+  append_to_write_buffer(conn, headers_frame, 9);
+  append_to_write_buffer(conn, buf, headers_len);
+
+  mod_epoll(conn->fd, EPOLLIN | EPOLLOUT | EPOLLET);
+  return 0;
+}
+
+static void http2_send_data_frame(Connection *conn, uint32_t stream_id,
+                                  const void *data, size_t data_len, int end_stream) {
+  unsigned char frame[9] = {0};
+  frame[0] = (data_len >> 16) & 0xFF;
+  frame[1] = (data_len >> 8) & 0xFF;
+  frame[2] = data_len & 0xFF;
+  frame[3] = H2_FRAME_DATA;
+  frame[4] = end_stream ? H2_FLAG_END_STREAM : 0;
+  frame[5] = (stream_id >> 24) & 0x7F;
+  frame[6] = (stream_id >> 16) & 0xFF;
+  frame[7] = (stream_id >> 8) & 0xFF;
+  frame[8] = stream_id & 0xFF;
+
+  append_to_write_buffer(conn, frame, 9);
+  if (data_len > 0) {
+    append_to_write_buffer(conn, data, data_len);
+  }
+
+  mod_epoll(conn->fd, EPOLLIN | EPOLLOUT | EPOLLET);
+}
+
+int http2_sse_send(Connection *conn, uint32_t stream_id, const char *event,
+                  const unsigned char *data, size_t data_len) {
+  char buf[8192];
+  size_t pos = 0;
+
+  if (event) {
+    pos += snprintf(buf + pos, sizeof(buf) - pos, "event: %s\r\n", event);
+  }
+
+  const unsigned char *ptr = data;
+  const unsigned char *end = data + data_len;
+
+  while (ptr < end) {
+    const unsigned char *line_end = ptr;
+    while (line_end < end && *line_end != '\n') {
+      line_end++;
+    }
+
+    size_t line_len = line_end - ptr;
+    if (line_len > sizeof(buf) - pos - 20) line_len = sizeof(buf) - pos - 20;
+
+    buf[pos++] = 'd';
+    buf[pos++] = 'a';
+    buf[pos++] = 't';
+    buf[pos++] = 'a';
+    buf[pos++] = ':';
+    buf[pos++] = ' ';
+
+    if (line_len > 0) {
+      memcpy(buf + pos, ptr, line_len);
+      pos += line_len;
+    }
+
+    buf[pos++] = '\r';
+    buf[pos++] = '\n';
+
+    if (line_end < end && *line_end == '\n') {
+      line_end++;
+    }
+    ptr = line_end;
+
+    if (pos > (int)sizeof(buf) - 100) break;
+  }
+
+  buf[pos++] = '\r';
+  buf[pos++] = '\n';
+
+  http2_send_data_frame(conn, stream_id, buf, pos, 0);
+  return 0;
+}
+
+void http2_sse_close(Connection *conn, uint32_t stream_id) {
+  unsigned char frame[9] = {0};
+  frame[3] = H2_FRAME_DATA;
+  frame[4] = H2_FLAG_END_STREAM;
+  frame[5] = (stream_id >> 24) & 0x7F;
+  frame[6] = (stream_id >> 16) & 0xFF;
+  frame[7] = (stream_id >> 8) & 0xFF;
+  frame[8] = stream_id & 0xFF;
+
+  append_to_write_buffer(conn, frame, 9);
+  mod_epoll(conn->fd, EPOLLIN | EPOLLOUT | EPOLLET);
+}
+
 void http2_handle_read(Connection *conn) {
   while (1) {
     ssize_t n = read(conn->fd, conn->read_buffer + conn->bytes_read,

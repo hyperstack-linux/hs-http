@@ -72,6 +72,12 @@ void http2_send_response(Connection *conn, uint32_t stream_id, int status_code,
                          const char *content_type, const void *body,
                          size_t body_len);
 
+// Send Server-Sent Events on HTTP/2
+int http2_sse_init(Connection *conn, uint32_t stream_id);
+int http2_sse_send(Connection *conn, uint32_t stream_id, const char *event,
+                   const unsigned char *data, size_t data_len);
+void http2_sse_close(Connection *conn, uint32_t stream_id);
+
 // Handle the original request from an h2c upgrade as HTTP/2 stream 1
 void http2_handle_upgrade_request(Connection *conn, const char *method,
                                   const char *path);

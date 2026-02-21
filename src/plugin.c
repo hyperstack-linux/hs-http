@@ -67,15 +67,25 @@ static void plugin_send_response_with_headers(int client_fd, int status_code, co
 }
 
 static int plugin_sse_init(int client_fd) {
+    if (current_h2_conn) {
+        return http2_sse_init(current_h2_conn, current_h2_stream);
+    }
     return sse_init(client_fd);
 }
 
 static int plugin_sse_send(int client_fd, const char* event, const unsigned char* data, unsigned int data_len) {
+    if (current_h2_conn) {
+        return http2_sse_send(current_h2_conn, current_h2_stream, event, data, data_len);
+    }
     return sse_send(client_fd, event, data, data_len);
 }
 
 static void plugin_sse_close(int client_fd) {
-    sse_close(client_fd);
+    if (current_h2_conn) {
+        http2_sse_close(current_h2_conn, current_h2_stream);
+    } else {
+        sse_close(client_fd);
+    }
 }
 
 static PluginAPI api = {

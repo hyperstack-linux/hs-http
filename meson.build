@@ -36,5 +36,8 @@ executable('hs-http',
   error_headers,
   include_directories : 'src/include',
   dependencies : dl_dep,
-  link_with : [http1_lib, http2_lib, server_epoll_lib],
-  install : true)
+  link_with : [http1_lib, http2_lib, server_epoll_lib])
+
+install_headers('src/include/plugin_api.h',
+                'src/include/plugin_api.hpp',
+                subdir : 'hs-http')
