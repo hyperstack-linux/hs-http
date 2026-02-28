@@ -117,6 +117,17 @@ int sse_send(int client_fd, const char* event, const unsigned char* data, unsign
         
         if (pos > (int)sizeof(buf) - 100) break;
     }
+
+    if (data_len > 0 && data[data_len - 1] == '\n') {
+        buf[pos++] = 'd';
+        buf[pos++] = 'a';
+        buf[pos++] = 't';
+        buf[pos++] = 'a';
+        buf[pos++] = ':';
+        buf[pos++] = ' ';
+        buf[pos++] = '\r';
+        buf[pos++] = '\n';
+    }
     
     buf[pos++] = '\r';
     buf[pos++] = '\n';

@@ -194,6 +194,17 @@ int http2_sse_send(Connection *conn, uint32_t stream_id, const char *event,
     if (pos > (int)sizeof(buf) - 100) break;
   }
 
+  if (data_len > 0 && data[data_len - 1] == '\n') {
+    buf[pos++] = 'd';
+    buf[pos++] = 'a';
+    buf[pos++] = 't';
+    buf[pos++] = 'a';
+    buf[pos++] = ':';
+    buf[pos++] = ' ';
+    buf[pos++] = '\r';
+    buf[pos++] = '\n';
+  }
+
   buf[pos++] = '\r';
   buf[pos++] = '\n';
 
