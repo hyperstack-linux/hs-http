@@ -337,61 +337,65 @@ void http2_handle_read(Connection *conn) {
         strcpy(method, "GET");
       }
 
-      log_message(conn->config, LOG_INFO, "HTTP/2 request: %s %s (stream %u)",
-                  method, path, stream_id);
+			log_message(conn->config, LOG_INFO, "HTTP/2 request: %s %s (stream %u)",
+				method, path, stream_id);
 
-      char *query = strchr(path, '?');
-      if (query)
-        *query = '\0';
+			char path_for_file[1024];
+			strncpy(path_for_file, path, sizeof(path_for_file) - 1);
+			path_for_file[sizeof(path_for_file) - 1] = '\0';
+			char *query = strchr(path_for_file, '?');
+			if (query)
+				*query = '\0';
 
-      if (strstr(path, "..") || path[0] != '/') {
-        http2_send_response(conn, stream_id, 400, "text/html",
-                            ___src_errors_404_html, ___src_errors_404_html_len);
-        goto next_frame;
-      }
+			if (strstr(path_for_file, "..") || path_for_file[0] != '/') {
+				http2_send_response(conn, stream_id, 400, "text/html",
+					___src_errors_404_html, ___src_errors_404_html_len);
+				goto next_frame;
+			}
 
-      set_plugin_h2_context(conn, stream_id);
-      int plugin_rv = handle_plugin_request(conn->fd, path, method, "HTTP/2.0",
-                                           NULL, 0, conn->config);
-      set_plugin_h2_context(NULL, 0);
+			set_plugin_h2_context(conn, stream_id);
+			int plugin_rv = handle_plugin_request(conn->fd, path, method, "HTTP/2.0",
+				NULL, 0, conn->config);
+			set_plugin_h2_context(NULL, 0);
 
-      if (plugin_rv == 0)
-        goto next_frame;
+			if (plugin_rv == 0)
+				goto next_frame;
 
-      char local_path[2048];
-      if (strcmp(path, "/") == 0) {
-        snprintf(local_path, sizeof(local_path), "%s/index.html",
-                 conn->config->root);
-      } else {
-        snprintf(local_path, sizeof(local_path), "%s%s", conn->config->root, path);
-      }
+			char local_path[2048];
+			if (strcmp(path_for_file, "/") == 0) {
+				snprintf(local_path, sizeof(local_path), "%s/index.html",
+					conn->config->root);
+			} else {
+				snprintf(local_path, sizeof(local_path), "%s%s", conn->config->root,
+					path_for_file);
+			}
 
-      struct stat st;
-      if (stat(local_path, &st) < 0) {
-        if (!conn->config->require_extensions && strchr(path, '.') == NULL) {
-          snprintf(local_path, sizeof(local_path), "%s%s.html", conn->config->root,
-                   path);
-          if (stat(local_path, &st) == 0)
-            goto file_found;
-        }
+			struct stat st;
+			if (stat(local_path, &st) < 0) {
+				if (!conn->config->require_extensions && strchr(path_for_file, '.') == NULL) {
+					snprintf(local_path, sizeof(local_path), "%s%s.html",
+						conn->config->root, path_for_file);
+					if (stat(local_path, &st) == 0)
+						goto file_found;
+				}
 
-        http2_send_response(conn, stream_id, 404, "text/html",
-                            ___src_errors_404_html, ___src_errors_404_html_len);
-        goto next_frame;
-      }
+				http2_send_response(conn, stream_id, 404, "text/html",
+					___src_errors_404_html, ___src_errors_404_html_len);
+				goto next_frame;
+			}
 
-file_found:
-      if (S_ISDIR(st.st_mode)) {
-        strncat(local_path, "/index.html",
-                sizeof(local_path) - strlen(local_path) - 1);
-        if (stat(local_path, &st) < 0) {
-          http2_send_response(conn, stream_id, 404, "text/html",
-                              ___src_errors_404_html, ___src_errors_404_html_len);
-          goto next_frame;
-        }
-      }
+		file_found:
+			if (S_ISDIR(st.st_mode)) {
+				strncat(local_path, "/index.html",
+					sizeof(local_path) - strlen(local_path) - 1);
+				if (stat(local_path, &st) < 0) {
+					http2_send_response(conn, stream_id, 404, "text/html",
+						___src_errors_404_html, ___src_errors_404_html_len);
+					goto next_frame;
+				}
+			}
 
-      int fd = open(local_path, O_RDONLY);
+			int fd = open(local_path, O_RDONLY);
       if (fd < 0) {
         http2_send_response(conn, stream_id, 500, "text/html",
                             ___src_errors_500_html, ___src_errors_500_html_len);
@@ -430,27 +434,27 @@ next_frame:;
 }
 
 void http2_handle_upgrade_request(Connection *conn, const char *method,
-                                  const char *path) {
-  char clean_path[1024];
-  strncpy(clean_path, path, sizeof(clean_path) - 1);
-  clean_path[sizeof(clean_path) - 1] = '\0';
-  char *q = strchr(clean_path, '?');
-  if (q)
-    *q = '\0';
+		const char *path) {
+	char clean_path[1024];
+	strncpy(clean_path, path, sizeof(clean_path) - 1);
+	clean_path[sizeof(clean_path) - 1] = '\0';
+	char *q = strchr(clean_path, '?');
+	if (q)
+		*q = '\0';
 
-  if (strstr(clean_path, "..") || clean_path[0] != '/') {
-    http2_send_response(conn, 1, 400, "text/html", ___src_errors_404_html,
-                        ___src_errors_404_html_len);
-    return;
-  }
+	if (strstr(clean_path, "..") || clean_path[0] != '/') {
+		http2_send_response(conn, 1, 400, "text/html", ___src_errors_404_html,
+			___src_errors_404_html_len);
+		return;
+	}
 
-  log_message(conn->config, LOG_INFO,
-              "HTTP/2 upgrade request: %s %s (stream 1)", method, clean_path);
+	log_message(conn->config, LOG_INFO,
+		"HTTP/2 upgrade request: %s %s (stream 1)", method, clean_path);
 
-  set_plugin_h2_context(conn, 1);
-  int plugin_rv = handle_plugin_request(conn->fd, clean_path, (char *)method,
-                                       "HTTP/2.0", NULL, 0, conn->config);
-  set_plugin_h2_context(NULL, 0);
+	set_plugin_h2_context(conn, 1);
+	int plugin_rv = handle_plugin_request(conn->fd, path, (char *)method,
+		"HTTP/2.0", NULL, 0, conn->config);
+	set_plugin_h2_context(NULL, 0);
   if (plugin_rv == 0)
     return;
 
