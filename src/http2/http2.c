@@ -361,6 +361,13 @@ void http2_handle_read(Connection *conn) {
 			if (plugin_rv == 0)
 				goto next_frame;
 
+			// If root is empty, no static files to serve
+			if (conn->config->root[0] == '\0') {
+				http2_send_response(conn, stream_id, 404, "text/html",
+					___src_errors_404_html, ___src_errors_404_html_len);
+				goto next_frame;
+			}
+
 			char local_path[2048];
 			if (strcmp(path_for_file, "/") == 0) {
 				snprintf(local_path, sizeof(local_path), "%s/index.html",
@@ -457,6 +464,13 @@ void http2_handle_upgrade_request(Connection *conn, const char *method,
 	set_plugin_h2_context(NULL, 0);
   if (plugin_rv == 0)
     return;
+
+  // If root is empty, no static files to serve
+  if (conn->config->root[0] == '\0') {
+    http2_send_response(conn, 1, 404, "text/html", ___src_errors_404_html,
+                        ___src_errors_404_html_len);
+    return;
+  }
 
   char local_path[2048];
   if (strcmp(clean_path, "/") == 0) {

@@ -150,6 +150,14 @@ void http1_handle_read(Connection *conn) {
       }
     }
 
+    // If root is empty, no static files to serve
+    if (conn->config->root[0] == '\0') {
+      handle_error(conn->fd, 404, "Not Found", conn->config->root, path);
+      conn->state = CONN_STATE_CLOSING;
+      free_connection(conn);
+      return;
+    }
+
     char path_without_query[1024];
     strncpy(path_without_query, path, sizeof(path_without_query) - 1);
     char *query_start = strchr(path_without_query, '?');

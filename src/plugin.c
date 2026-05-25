@@ -188,7 +188,7 @@ int handle_plugin_request(int client_fd, const char* path, char* method, char* v
         size_t endpoint_len = strlen(p->endpoint);
 
         if (endpoint_len == 1 && p->endpoint[0] == '/') {
-            if (path[0] != '/' || path[1] == '\0') {
+            if (path[0] != '/') {
                 continue;
             }
         } else {

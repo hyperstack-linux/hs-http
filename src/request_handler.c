@@ -31,6 +31,12 @@ int handle_request_common(Connection *conn, const char *path, const char *method
     }
 
     // If no plugin handled the request, serve static files
+    // If root is empty, no static files to serve
+    if (conn->config->root[0] == '\0') {
+        handle_error(conn->fd, 404, "Not Found", conn->config->root, path);
+        return -1;
+    }
+
     char path_without_query[1024];
     strncpy(path_without_query, path, sizeof(path_without_query) - 1);
     path_without_query[sizeof(path_without_query) - 1] = '\0';

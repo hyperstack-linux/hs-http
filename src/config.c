@@ -145,7 +145,11 @@ int load_config(const char* path, ServerConfig* config) {
             } else if (strcmp(key, "interface") == 0) {
                 strncpy(config->interface, value, sizeof(config->interface) - 1);
             } else if (strcmp(key, "root") == 0) {
-                strncpy(config->root, value, sizeof(config->root) - 1);
+                if (strcmp(value, "\"\"") == 0 || strcmp(value, "none") == 0) {
+                    config->root[0] = '\0';
+                } else {
+                    strncpy(config->root, value, sizeof(config->root) - 1);
+                }
             } else if (strcmp(key, "cache_max_age") == 0) {
                 config->cache_max_age = atoi(value);
             } else if (strcmp(key, "cached_time") == 0) {
