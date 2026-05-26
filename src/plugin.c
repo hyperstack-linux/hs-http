@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <stdbool.h>
 #include <dlfcn.h>
 #include <stdarg.h>
 #include "include/server.h"
@@ -86,6 +87,32 @@ static void plugin_sse_close(int client_fd) {
     } else {
         sse_close(client_fd);
     }
+}
+
+// Wildcard pattern matching: '*' matches any sequence of characters (including '/')
+static bool match_pattern(const char* pattern, const char* path) {
+    while (*pattern) {
+        if (*pattern == '*') {
+            pattern++;
+            if (*pattern == '\0') {
+                // Trailing * matches everything
+                return true;
+            }
+            // Try to match the rest of the pattern against each suffix of path
+            while (*path) {
+                if (match_pattern(pattern, path)) {
+                    return true;
+                }
+                path++;
+            }
+            return false;
+        } else if (*pattern != *path) {
+            return false;
+        }
+        pattern++;
+        path++;
+    }
+    return *path == '\0';
 }
 
 static PluginAPI api = {
@@ -249,7 +276,7 @@ int handle_plugin_request(int client_fd, const char* path, char* method, char* v
         for (int j = 0; j < info->endpoint_count; j++) {
             PluginEndpoint* ep = &info->endpoints[j];
 
-            if (strcmp(subpath, ep->path) != 0) {
+            if (!match_pattern(ep->path, subpath)) {
                 continue;
             }
 
@@ -406,8 +433,23 @@ int handle_plugin_request(int client_fd, const char* path, char* method, char* v
             req.body = body_ptr;
             req.body_len = body_len;
 
-            log_message(config, LOG_DEBUG, "Plugin %s handling %s %s (headers=%d body=%u)",
-                       info->name, method, path, header_count, body_len);
+            // Construct full URL from Host header + full_path
+            req.url[0] = '\0';
+            const char* host = NULL;
+            for (int h = 0; h < header_count; h++) {
+                if (strcasecmp(headers[h].key, "Host") == 0) {
+                    host = headers[h].value;
+                    break;
+                }
+            }
+            if (host) {
+                snprintf(req.url, sizeof(req.url), "http://%s%s", host, path);
+            } else {
+                snprintf(req.url, sizeof(req.url), "http://localhost%s", path);
+            }
+
+            log_message(config, LOG_DEBUG, "Plugin %s handling %s %s (headers=%d body=%u) url=%s",
+                       info->name, method, path, header_count, body_len, req.url);
 
             int rv = ep->handler(&req);
 

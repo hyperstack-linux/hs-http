@@ -19,13 +19,22 @@ static void __attribute__((constructor(102))) loop() {
     res.sendJSON(R"({"users": ["alice", "bob", "charlie"]})");
   });
 
-  plugin->registerHandler(
-      "/data",
-      [](Request &req, Response &res) {
-        Plugin::logDebug("Data endpoint: " + std::string(req.getFullPath()));
-        res.sendText("Data from C++");
-      },
-      "GET");
+  plugin->registerHandler("/data", [](Request &req, Response &res) {
+    Plugin::logDebug("Data endpoint: " + std::string(req.getFullPath()));
+    res.sendText("Data from C++");
+  });
+
+  // Wildcard example: /files/* matches /files/foo, /files/bar/baz, etc.
+  plugin->registerHandler("/files/*", [](Request &req, Response &res) {
+    std::string body = "File path: ";
+    body += req.getPath();
+    res.sendText(body);
+  });
+
+  // Wildcard with prefix: /api/*/action matches /api/users/action, /api/items/action
+  plugin->registerHandler("/api/*/action", [](Request &req, Response &res) {
+    res.sendJSON(R"({"status": "action performed"})");
+  });
 
   plugin->registerHandler(
       "/echo",

@@ -74,6 +74,7 @@ public:
     const char* getMethod() const { return req->method; }
     const char* getPath() const { return req->path; }
     const char* getFullPath() const { return req->full_path; }
+    const char* getUrl() const { return req->url; }
 
     const char* getQueryParam(const char* key) const {
         for (int i = 0; i < req->query_param_count; i++) {
@@ -246,6 +247,32 @@ public:
     void setInitCallback(std::function<void()> callback) { init_callback = callback; }
     void setCleanupCallback(std::function<void()> callback) { cleanup_callback = callback; }
 
+    // Wildcard pattern matching: '*' matches any sequence of characters (including '/')
+    static bool matchPattern(const std::string& pattern, const char* path) {
+        const char* p = pattern.c_str();
+        const char* s = path;
+        while (*p) {
+            if (*p == '*') {
+                p++;
+                if (*p == '\0') {
+                    return true; // trailing * matches everything
+                }
+                while (*s) {
+                    if (matchPattern(p, s)) {
+                        return true;
+                    }
+                    s++;
+                }
+                return false;
+            } else if (*p != *s) {
+                return false;
+            }
+            p++;
+            s++;
+        }
+        return *s == '\0';
+    }
+
     static void log(int level, const char* format, ...) {
         if (!api) return;
         va_list args;
@@ -284,7 +311,7 @@ public:
                 Request request(req);
                 Response response(req->client_fd);
                 for (const auto& handler : *(instance->handlers)) {
-                    if (handler.path == req->path && (handler.method.empty() || handler.method == req->method)) {
+                    if (matchPattern(handler.path, req->path) && (handler.method.empty() || handler.method == req->method)) {
                         try {
                             handler.handler(request, response);
                         } catch (const std::exception& e) {

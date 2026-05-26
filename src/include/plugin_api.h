@@ -26,6 +26,7 @@ typedef struct {
     char method[16];
     char path[1024];
     char full_path[1024];
+    char url[2048];
     char version[16];
     QueryParam* query_params;
     int query_param_count;
